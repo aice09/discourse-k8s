@@ -6,6 +6,11 @@ on:
         description: Official Discourse tag or channel (e.g. vX.Y.Z, release, esr, latest)
         required: true
         default: release
+      build_image:
+        description: Build and publish only after image adapter validation
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -32,6 +37,7 @@ jobs:
           echo "Discourse ref $DISCOURSE_REF resolved to $SHA"
 
   build:
+    if: ${{ inputs.build_image }}
     needs: resolve
     runs-on: ubuntu-latest
     steps:

@@ -1,0 +1,5 @@
+# Add repositoryID after creating the repository in Artifact Hub and claiming ownership.
+repositoryID: ""
+owners:
+  - name: PHLOPENTECH
+    email: maintainers@phlopentech.org

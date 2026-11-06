@@ -1,0 +1,60 @@
+image:
+  repository: ghcr.io/aice09/discourse
+  tag: "REPLACE_WITH_VERIFIED_RELEASE"
+  pullPolicy: IfNotPresent
+
+discourse:
+  hostname: forum.phlopentech.org
+  title: PHLOPENTECH Community
+  existingSecret: discourse-secrets
+
+web:
+  replicas: 3
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+
+sidekiq:
+  replicas: 2
+
+database:
+  provider: postgresql
+  postgresql:
+    storage:
+      storageClass: ceph-rbd-infra-k8s
+      size: 100Gi
+
+redis:
+  provider: standalone
+  standalone:
+    storage:
+      storageClass: ceph-rbd-infra-k8s
+      size: 20Gi
+
+uploads:
+  backend: existing-pvc
+  existingClaim: discourse-uploads
+  mountPath: /shared
+
+networking:
+  mode: ingress
+  ingress:
+    className: ""
+    hosts:
+      - host: forum.phlopentech.org
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      enabled: true
+      secretName: discourse-tls
+
+certManager:
+  enabled: true
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - forum.phlopentech.org

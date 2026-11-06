@@ -1,0 +1,47 @@
+name: Build and publish Discourse image
+on:
+  workflow_dispatch:
+    inputs:
+      discourse_ref:
+        description: Official Discourse tag or channel (e.g. vX.Y.Z, release, esr, latest)
+        required: true
+        default: release
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Resolve official tag/channel to immutable commit
+        id: resolve
+        env:
+          DISCOURSE_REF: ${{ inputs.discourse_ref }}
+        run: |
+          set -euo pipefail
+          git ls-remote https://github.com/discourse/discourse.git "$DISCOURSE_REF" "refs/tags/$DISCOURSE_REF" "refs/tags/$DISCOURSE_REF^{}" "refs/heads/$DISCOURSE_REF" > refs.txt
+          SHA="$(awk '$2 ~ /\^\{\}$/ {print $1; exit}' refs.txt)"
+          [[ -n "$SHA" ]] || SHA="$(awk -v ref="refs/tags/$DISCOURSE_REF" '$2 == ref {print $1; exit}' refs.txt)"
+          [[ -n "$SHA" ]] || SHA="$(awk -v ref="refs/heads/$DISCOURSE_REF" '$2 == ref {print $1; exit}' refs.txt)"
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Unable to resolve ref: $DISCOURSE_REF"; exit 1; }
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Discourse ref $DISCOURSE_REF resolved to $SHA"
+
+  build:
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require pinned Docker build definitions
+        env:
+          DISCOURSE_DOCKER_REF: ${{ vars.DISCOURSE_DOCKER_REF }}
+        run: |
+          [[ "$DISCOURSE_DOCKER_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "DISCOURSE_DOCKER_REF must be a 40-character commit SHA"; exit 1; }
+      - name: Stop until Kubernetes image adapter is validated
+        run: |
+          echo "::error::Source tag resolution works, but image publishing remains gated. Implement and test build/IMAGE_CONTRACT.md before publishing."
+          exit 1

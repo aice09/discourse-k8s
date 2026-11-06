@@ -1,0 +1,20 @@
+{{- if and .Values.database.enabled (eq .Values.database.provider "cloudnative-pg") }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "discourse.fullname" . }}-postgresql
+spec:
+  instances: {{ .Values.database.cloudnativepg.instances }}
+  imageName: {{ .Values.database.cloudnativepg.imageName | quote }}
+  bootstrap:
+    initdb:
+      database: {{ .Values.database.cloudnativepg.database | quote }}
+      owner: {{ .Values.database.cloudnativepg.owner | quote }}
+      secret:
+        name: {{ .Values.database.cloudnativepg.existingSecret }}
+  storage:
+    storageClass: {{ .Values.database.cloudnativepg.storage.storageClass | quote }}
+    size: {{ .Values.database.cloudnativepg.storage.size }}
+  resources:
+    {{- toYaml .Values.database.cloudnativepg.resources | nindent 4 }}
+{{- end }}

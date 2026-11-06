@@ -1,0 +1,63 @@
+{{- if and .Values.database.enabled (eq .Values.database.provider "postgresql") }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "discourse.fullname" . }}-postgresql
+spec:
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: postgresql
+  ports:
+    - name: postgres
+      port: {{ .Values.database.postgresql.servicePort }}
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "discourse.fullname" . }}-postgresql
+spec:
+  serviceName: {{ include "discourse.fullname" . }}-postgresql
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: postgresql
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: postgresql
+    spec:
+      containers:
+        - name: postgresql
+          image: {{ .Values.database.postgresql.image | quote }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.database.postgresql.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.database.postgresql.username | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.postgresql.existingSecret }}
+                  key: {{ .Values.database.postgresql.passwordKey }}
+          resources:
+            {{- toYaml .Values.database.postgresql.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+              subPath: pgdata
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.database.postgresql.storage.storageClass | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.database.postgresql.storage.size }}
+{{- end }}

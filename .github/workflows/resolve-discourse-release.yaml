@@ -1,0 +1,86 @@
+name: Resolve official Discourse source
+on:
+  workflow_dispatch:
+    inputs:
+      discourse_ref:
+        description: Official Discourse tag or channel (e.g. vX.Y.Z, release, esr, latest)
+        required: true
+        default: release
+      build_image:
+        description: Build and publish only after image adapter validation
+        required: true
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      discourse_ref:
+        required: true
+        type: string
+      build_image:
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.resolve.outputs.ref }}
+      sha: ${{ steps.resolve.outputs.sha }}
+      short_sha: ${{ steps.resolve.outputs.short_sha }}
+    steps:
+      - name: Validate and resolve upstream ref
+        id: resolve
+        env:
+          DISCOURSE_REF: ${{ inputs.discourse_ref || vars.DISCOURSE_REF || 'release' }}
+        run: |
+          set -euo pipefail
+          test -n "$DISCOURSE_REF"
+          git ls-remote https://github.com/discourse/discourse.git "$DISCOURSE_REF" "refs/tags/$DISCOURSE_REF" "refs/tags/$DISCOURSE_REF^{}" > refs.txt
+          # Prefer peeled annotated-tag SHA, then exact tag, then a branch/channel ref.
+          SHA="$(awk '$2 ~ /\^\{\}$/ {print $1; exit}' refs.txt)"
+          if [[ -z "$SHA" ]]; then
+            SHA="$(awk -v ref="refs/tags/$DISCOURSE_REF" '$2 == ref {print $1; exit}' refs.txt)"
+          fi
+          if [[ -z "$SHA" ]]; then
+            SHA="$(awk -v ref="refs/heads/$DISCOURSE_REF" '$2 == ref {print $1; exit}' refs.txt)"
+          fi
+          if [[ -z "$SHA" ]]; then
+            echo "Could not resolve '$DISCOURSE_REF' as a tag or branch at discourse/discourse." >&2
+            cat refs.txt
+            exit 1
+          fi
+          echo "ref=$DISCOURSE_REF" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHA:0:12}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Resolved upstream Discourse source"
+            echo "- Requested ref: \`$DISCOURSE_REF\`"
+            echo "- Resolved commit: \`$SHA\`"
+            echo "- Source: https://github.com/discourse/discourse"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout selected official source
+        uses: actions/checkout@v4
+        with:
+          repository: discourse/discourse
+          ref: ${{ steps.resolve.outputs.sha }}
+          path: upstream/discourse
+
+      - name: Upload source metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: discourse-source-metadata
+          path: |
+            upstream/discourse/.git
+          if-no-files-found: ignore
+
+      - name: Image builder is gated pending validated adapter
+        if: ${{ inputs.build_image }}
+        run: |
+          echo "::error::Image publishing is not enabled until build/IMAGE_CONTRACT.md is implemented and staging-validated."
+          exit 1

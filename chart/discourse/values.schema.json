@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "database": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": [
+            "postgresql",
+            "cloudnative-pg",
+            "external"
+          ]
+        }
+      }
+    },
+    "redis": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": [
+            "standalone",
+            "external"
+          ]
+        }
+      }
+    },
+    "networking": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "ingress",
+            "gateway-api",
+            "disabled"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,24 @@
+apiVersion: v2
+name: discourse
+description: PHLOPENTECH Discourse deployment for Kubernetes
+type: application
+version: 0.1.0
+appVersion: "PINNED"
+home: https://github.com/aice09/discourse-k8s
+sources:
+  - https://github.com/discourse/discourse
+  - https://github.com/discourse/discourse_docker
+maintainers:
+  - name: PHLOPENTECH
+    email: maintainers@phlopentech.org
+keywords:
+  - discourse
+  - community
+  - forum
+annotations:
+  artifacthub.io/category: social
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/links: |
+    - name: Source
+      url: https://github.com/aice09/discourse-k8s

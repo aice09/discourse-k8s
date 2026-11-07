@@ -27,16 +27,13 @@ helm upgrade --install discourse chart/discourse \
   -n discourse -f deploy/production/values.yaml
 ```
 
-## Image and first-run migration
+## Image and migration
 
-Set `image.tag` to a tag published by the image workflow. The chart does not yet run migrations;
-run them once before (or after) the first rollout and on every upgrade:
-
-```bash
-kubectl -n discourse run discourse-migrate --rm -it --restart=Never \
-  --image ghcr.io/OWNER/discourse:TAG \
-  --overrides '{"spec":{"containers":[{"name":"discourse-migrate","image":"ghcr.io/OWNER/discourse:TAG","args":["migrate"],"envFrom":[{"configMapRef":{"name":"discourse-discourse-runtime"}},{"secretRef":{"name":"discourse-secrets"}}]}]}}'
-```
+Set `image.tag` to a tag published by the image workflow. With `migration.enabled: true` the chart
+runs `discourse-entrypoint migrate` as a Helm post-install/post-upgrade hook Job, using the
+`migration.existingSecret` Secret (default `discourse-secrets`). Create that Secret first with
+`DISCOURSE_DB_PASSWORD`, `DISCOURSE_REDIS_PASSWORD`, `DISCOURSE_SECRET_KEY_BASE` and the
+`DISCOURSE_SMTP_*` settings.
 
 ## PostgreSQL provider selection
 

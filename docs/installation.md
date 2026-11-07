@@ -27,6 +27,17 @@ helm upgrade --install discourse chart/discourse \
   -n discourse -f deploy/production/values.yaml
 ```
 
+## Image and first-run migration
+
+Set `image.tag` to a tag published by the image workflow. The chart does not yet run migrations;
+run them once before (or after) the first rollout and on every upgrade:
+
+```bash
+kubectl -n discourse run discourse-migrate --rm -it --restart=Never \
+  --image ghcr.io/OWNER/discourse:TAG \
+  --overrides '{"spec":{"containers":[{"name":"discourse-migrate","image":"ghcr.io/OWNER/discourse:TAG","args":["migrate"],"envFrom":[{"configMapRef":{"name":"discourse-discourse-runtime"}},{"secretRef":{"name":"discourse-secrets"}}]}]}}'
+```
+
 ## PostgreSQL provider selection
 
 - `postgresql`: chart-managed single-instance StatefulSet.

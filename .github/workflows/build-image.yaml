@@ -138,11 +138,14 @@ jobs:
           done
           [[ "$ok" == 1 ]] || { echo "web did not become ready"; exit 1; }
 
+          registered=0
           for i in $(seq 1 30); do
-            docker logs sidekiq 2>&1 | grep -q 'Starting processing' && break
+            if [[ -n "$(docker run --rm --network host redis:7.4.2 redis-cli -n 1 --scan --pattern '*processes*')" ]]; then registered=1; break; fi
             sleep 2
           done
-          docker logs sidekiq 2>&1 | grep -q 'Starting processing' || { echo "sidekiq did not start"; exit 1; }
+          docker run --rm --network host redis:7.4.2 redis-cli -n 1 --scan --pattern '*process*' || true
+          [[ "$registered" == 1 ]] || { echo "sidekiq did not register a process in Redis"; exit 1; }
+          [[ "$(docker inspect -f '{{.State.Running}}' sidekiq)" == true ]] || { echo "sidekiq exited"; exit 1; }
 
           [[ -d "$RUNNER_TEMP/shared/uploads" ]] || { echo "uploads dir not created on shared volume"; exit 1; }
 

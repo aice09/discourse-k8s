@@ -30,7 +30,7 @@ Do not assume a target name or image build command based on an old pipeline.
 ## Image adapter (`Dockerfile`, `docker-entrypoint.sh`)
 
 `Dockerfile` starts from the `discourse/base` image named in
-`samples/web_only.yml` at the pinned `DISCOURSE_DOCKER_REF` (resolved to a digest by the
+`templates/web.template.yml` at the pinned `DISCOURSE_DOCKER_REF` (resolved to a digest by the
 workflow), checks out the exact resolved Discourse commit, installs dependencies and
 precompiles assets against a throwaway PostgreSQL/Redis (`docker build --network host`).
 

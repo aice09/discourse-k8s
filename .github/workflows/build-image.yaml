@@ -87,7 +87,7 @@ jobs:
         id: meta
         run: |
           set -euo pipefail
-          BASE_TAG="$(awk '/^base_image:/ {print $2; exit}' discourse_docker/samples/web_only.yml)"
+          BASE_TAG="$(awk '/^base_image:/ {print $2; exit}' discourse_docker/templates/web.template.yml)"
           [[ "$BASE_TAG" == discourse/base:* ]] || { echo "Unexpected base image: $BASE_TAG"; exit 1; }
           BASE_DIGEST="$(docker buildx imagetools inspect "$BASE_TAG" --format '{{.Manifest.Digest}}')"
           SAFE_REF="$(echo "$DISCOURSE_REF" | tr '/' '-' | tr -c 'A-Za-z0-9._\n-' '-')"

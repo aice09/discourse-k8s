@@ -7,7 +7,12 @@ on:
         required: true
         default: release
       build_image:
-        description: Build and publish only after image adapter validation
+        description: Build the image and run the smoke tests
+        required: true
+        type: boolean
+        default: false
+      publish_image:
+        description: Push to GHCR after a successful build and smoke test
         required: true
         type: boolean
         default: false
@@ -40,14 +45,120 @@ jobs:
     if: ${{ inputs.build_image }}
     needs: resolve
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: discourse
+          POSTGRES_PASSWORD: ci-build-only
+          POSTGRES_DB: discourse
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U discourse"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7.4.2
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DISCOURSE_REF: ${{ inputs.discourse_ref }}
+      DISCOURSE_SHA: ${{ needs.resolve.outputs.source_sha }}
+      DISCOURSE_DOCKER_REF: ${{ vars.DISCOURSE_DOCKER_REF }}
     steps:
       - uses: actions/checkout@v4
       - name: Require pinned Docker build definitions
-        env:
-          DISCOURSE_DOCKER_REF: ${{ vars.DISCOURSE_DOCKER_REF }}
         run: |
           [[ "$DISCOURSE_DOCKER_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "DISCOURSE_DOCKER_REF must be a 40-character commit SHA"; exit 1; }
-      - name: Stop until Kubernetes image adapter is validated
+      - uses: actions/checkout@v4
+        with:
+          repository: discourse/discourse_docker
+          ref: ${{ vars.DISCOURSE_DOCKER_REF }}
+          path: discourse_docker
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+      - name: Resolve base image and image name
+        id: meta
         run: |
-          echo "::error::Source tag resolution works, but image publishing remains gated. Implement and test build/IMAGE_CONTRACT.md before publishing."
-          exit 1
+          set -euo pipefail
+          BASE_TAG="$(awk '/^base_image:/ {print $2; exit}' discourse_docker/samples/web_only.yml)"
+          [[ "$BASE_TAG" == discourse/base:* ]] || { echo "Unexpected base image: $BASE_TAG"; exit 1; }
+          BASE_DIGEST="$(docker buildx imagetools inspect "$BASE_TAG" --format '{{.Manifest.Digest}}')"
+          SAFE_REF="$(echo "$DISCOURSE_REF" | tr '/' '-' | tr -c 'A-Za-z0-9._\n-' '-')"
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          {
+            echo "base_image=discourse/base@${BASE_DIGEST}"
+            echo "image=ghcr.io/${OWNER}/discourse"
+            echo "tag=${SAFE_REF}-${DISCOURSE_SHA:0:12}"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## Image inputs"
+            echo "- Discourse ref: \`$DISCOURSE_REF\` -> \`$DISCOURSE_SHA\`"
+            echo "- discourse_docker: \`$DISCOURSE_DOCKER_REF\`"
+            echo "- Base image: \`$BASE_TAG\` (\`$BASE_DIGEST\`)"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Build image
+        run: |
+          docker build --network host \
+            --build-arg BASE_IMAGE="${{ steps.meta.outputs.base_image }}" \
+            --build-arg DISCOURSE_REF="$DISCOURSE_REF" \
+            --build-arg DISCOURSE_SHA="$DISCOURSE_SHA" \
+            --build-arg DISCOURSE_DOCKER_REF="$DISCOURSE_DOCKER_REF" \
+            -t "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
+            -f build/Dockerfile build
+      - name: Smoke test (migrate, web, sidekiq, SIGTERM, shared uploads)
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/shared"
+          RUN=(docker run --network host
+            -v "$RUNNER_TEMP/shared:/shared"
+            -e DISCOURSE_HOSTNAME=ci.invalid
+            -e DISCOURSE_DB_SOCKET=
+            -e DISCOURSE_DB_HOST=127.0.0.1
+            -e DISCOURSE_DB_PASSWORD=ci-build-only
+            -e DISCOURSE_REDIS_HOST=127.0.0.1)
+
+          "${RUN[@]}" --rm "$IMAGE" migrate
+
+          "${RUN[@]}" -d --name web "$IMAGE" web
+          "${RUN[@]}" -d --name sidekiq "$IMAGE" sidekiq
+
+          ok=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3000/srv/status; then ok=1; break; fi
+            sleep 5
+          done
+          [[ "$ok" == 1 ]] || { echo "web did not become ready"; exit 1; }
+
+          for i in $(seq 1 30); do
+            docker logs sidekiq 2>&1 | grep -q 'Starting processing' && break
+            sleep 2
+          done
+          docker logs sidekiq 2>&1 | grep -q 'Starting processing' || { echo "sidekiq did not start"; exit 1; }
+
+          [[ -d "$RUNNER_TEMP/shared/uploads" ]] || { echo "uploads dir not created on shared volume"; exit 1; }
+
+          for c in web sidekiq; do
+            docker stop -t 30 "$c" >/dev/null
+            code="$(docker inspect -f '{{.State.ExitCode}}' "$c")"
+            echo "$c exited with $code after SIGTERM"
+            [[ "$code" != 137 ]] || { echo "$c was SIGKILLed instead of stopping gracefully"; exit 1; }
+          done
+      - name: Container logs on failure
+        if: ${{ failure() }}
+        run: |
+          for c in web sidekiq; do echo "::group::$c"; docker logs "$c" 2>&1 | tail -100 || true; echo "::endgroup::"; done
+      - name: Push image
+        if: ${{ inputs.publish_image }}
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGE"
+          DIGEST="$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE")"
+          echo "- Published: \`$DIGEST\`" >> "$GITHUB_STEP_SUMMARY"

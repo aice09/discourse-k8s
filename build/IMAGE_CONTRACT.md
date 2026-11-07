@@ -24,4 +24,10 @@ Required staging tests:
 8. Create and restore a full database + uploads backup.
 9. Test version upgrade and rollback/restore in staging.
 
-CI image publication remains gated until these checks are implemented and passed.
+Status of the required staging tests:
+- Tests 1-2 (build, recorded inputs) and the CI portion of 3 and 7 (web readiness at `/srv/status`,
+  Sidekiq start, graceful SIGTERM) are covered by the `Build and publish Discourse image` workflow.
+- Test 4 (migration on a copy of the target DB), 5 (cross-node uploads), 6, 8 and 9 remain manual
+  staging checks. Publish only after passing them for the exact image digest you deploy.
+
+Publication requires explicitly setting `publish_image: true` on the workflow.
